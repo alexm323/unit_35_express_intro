@@ -1,0 +1,456 @@
+________________________________________________
+2. Database OO Design Patterns 
+________________________________________________
+Now that we have been able to interface with our database its time to refactor this kind of thing 
+
+it is obnoxious to write a bunch of sql 
+
+when we used SQL alchemy we didnt have to write all of these things, it would be nice to refactor and write our own object oriented solutions 
+
+refactor our express apps to separate view logic (routing) from model logic (data)
+
+compare different OO designs for interfacing with our database
+
+borrow useful ideas from ORMS to build our own model layers
+
+we are going to be using OOP 
+
+why do we use it?
+helps us organize our code, without classes we can get by but it also helps us organize our code 
+
+classes help us abstract our data when certain details aren't needed 
+
+not everyone should have to understand everything
+only one person has to worry about SQL validation etc. 
+
+Encapsulation
+
+OO can offer the ability to group functionality into larger logical pieces 
+
+to get in a capsule 
+
+everything relatesd to a cat data/functionality lives in Cat 
+
+we can capture and group things together for our data 
+
+Polymorphism - the ability to implement similar functionality in different classes 
+
+the ability to make similar things work simlarly 
+
+we could have other kinds of animals with same API 
+
+dogs and cats would both have a speak method even though it behaves different animals Meow vs Woof 
+
+our goal is to improve upon what we have already been doing 
+
+lets make some classes and methods to make our lives easier and we are going to see two methods
+
+________________________________________________
+3. Simple OO approach
+________________________________________________
+
+so lets imrpove our current sql stuff with some OO 
+
+we are setting up our app 
+
+we want to be able to not have to write sql to select something from our database 
+
+so we want to write some functions 
+
+function allCats(){
+    
+}
+
+createCat()
+deleteCat()
+updateCat()
+makeCatOlder()
+
+
+rather than doing that it would be a lot nicer if we used a class
+in this approach we want to make a single class for all cat related functions 
+
+it won't hold data
+you wont ever instantiate it 
+all the methods are static that we would call on the Cat class 
+
+we would have 
+
+Cat.getAll()
+Cat.find(1) pass in an id 
+
+Cat.delete(1) pass in an ide 
+Cat.udpate(3,'udpate stuff')
+
+Dog.getAll() 
+
+all this kinds of stuff and it would help to organize our data 
+
+the way we would make this work is by using Static methods. 
+
+it would move sql out of our routes 
+
+const db = require('../db')
+
+class Cat {
+    static async getAll() {
+        const result = await db.query('SELECT * FROM cats');
+        return result.rows
+    }
+}
+
+module.exports = Cat;
+
+we make our model and then we also await when we call the method 
+
+router.get("/", async (req, res, next) => {
+    try {
+        const cats = await Cat.getAll()
+        return res.json(cats)
+    } catch (e) {
+        next(e)
+    }
+
+})
+
+and now there is no sql in our route now 
+
+now we want to be able to get a single cat by id 
+
+router.get('/:id', async (req, res, next) => {
+    try {
+        Cat.getById(req.params.id)
+    } catch (e) {
+        next(e)
+    }
+})
+
+we want our route to look like that so we are going to need to write that static mwethod 
+
+should accept the id and write a select query for it 
+
+and we got that to work, but now we are not handling the case where someone checks for an ID that doesnt exist 
+so we can add that logic to the static method instead of doing it in the route so where we check if results.rows has anything in it 
+
+so now our routes dont have any sql in them and we are moving that logic to the static class 
+
+so we will create some more methods in the following videos 
+
+________________________________________________
+4. Simple OO approach part 2
+
+So now we want to add a post request route 
+
+for our post route we want to be able to run Cat.create 
+
+
+router.post('/', async (req, res, next) => {
+    try {
+        const { name, age } = req.body
+        const cat = await Cat.create(name, age)
+    } catch (e) {
+        next(e)
+    }
+})
+
+so we can write out the route and then make our static method for posting/create
+
+static async create(name, age) {
+        const result = await db.query(
+            `INSERT INTO cats (name,age) 
+        VALUES ($1,$2)
+        RETURNING id,name,age`
+            , [name, age]);
+        return result.rows[0]
+
+    }
+
+and so right now we have our POST method working but if a user tried to send no name or no age for a cat, since it cannot be null it throws an error, so what we can do is handle some simple validation in our static method 
+
+if (!name || !age) {
+            throw new ExpressError('Missing required data', 400)
+        }
+
+so now if a name or age is missing inside of the request then we are handling that and returning the appropriate error 
+
+in a bit we will learn how to validate json data 
+
+we will see a better solution for this later on
+
+now we can delete a cat and we are also not handling if an invalid id is not deleting so if we wanted to check if something was deleted 
+what we can do is add a RETURNING Clause just to see if we are getting something back that was deleted. 
+
+________________________________________________
+
+________________________________________________
+5. Simple OO approach part 3
+________________________________________________
+
+So we have seen creating new cats, deleting a cat and we should also be able to update a cat 
+
+
+here is our static method 
+static async update(id, newName, newAge) {
+
+        const result = await db.query(`UPDATE cats SET name = $1, age = $2 WHERE id = $3 RETURNING id,name,age`, [newName, newAge, id])
+        if (result.rows.length === 0) {
+            throw new ExpressError("Cat not found", 404)
+        }
+        return result.rows[0]
+    }
+
+Update route
+router.put('/:id', async (req, res, next) => {
+    try {
+        const { name, age } = req.body
+        const cat = await Cat.update(req.params.id, name, age)
+        return res.json(cat)
+    } catch (e) {
+        return next(e)
+    }
+})
+
+
+
+so this is the response we are getting back now 
+{
+  "id": 3,
+  "name": "PompomFace",
+  "age": 5
+}
+
+if we try to update a cat that doesnt exist then we throw the appropriate error 
+
+so now we can add a patch method that will help us age a cat 1 year forward 
+
+router.patch('/:id', async (req, res, next) => {
+    try {
+        const cat = await Cat.makeOlder(req.params.id)
+        return res.json(cat)
+    } catch (e) {
+        next(e)
+    }
+})
+
+our static method just includes an id and doesnt need any additional data 
+
+static async makeOlder(id) {
+
+        const result = await db.query(`UPDATE cats SET age = age+1 WHERE id = $1 RETURNING id,name,age`, [id])
+        if (result.rows.length === 0) {
+            throw new ExpressError("Cat not found", 404)
+        }
+        return result.rows[0]
+    }
+
+we add in a patch request route that allows us to age a cat forward by 1 year 
+
+
+lets say we had a blog post thing like this 
+
+title
+author
+votes 
+
+for something like updating votes you would typically have a single up and down method 
+
+for a blog post we could have a upvote and downvote, edit title, change author
+
+so the second approach is taking a more advanced approach of classes and that will make updating a lot easier 
+
+
+________________________________________________
+6. A Smarter OO Model 
+________________________________________________
+The end goal is to still be able to call a method like Dog.getAll() 
+but this method should return an array of dog objects 
+
+so we are going to be making a class and a model 
+
+class Dog {
+    constructor(id, name, age) {
+        this.id = id;
+        this.name = name;
+        this.age = age;
+    }
+}
+
+we are going to want a new Dog to be instantianted when we call a method??? I think 
+
+we no longer need to call in db on the dogs routes because we will be using the class of Dog instead and we need to use the db function there 
+
+this is the first static method that we have in our dog object 
+
+static async getAll(){
+        const results = await db.query(`SELECT id,name,age FROM dogs`)
+        results.rows
+    }
+
+and we want to loop through the results.rows and create instances of Dogs  
+
+
+this is what we currently get when we ask for the data for Dogs from our database 
+
+rows: [
+    { id: 1, name: 'Whiskey', age: 6 },
+    { id: 2, name: 'Woofles', age: 3 }
+  ],
+
+we want to map through this array and turn it into an actual dog 
+
+so now we have a before and after
+
+[
+  { id: 1, name: 'Whiskey', age: 6 },
+  { id: 2, name: 'Woofles', age: 3 }
+]
+[
+  Dog { id: 1, name: 'Whiskey', age: 6 },
+  Dog { id: 2, name: 'Woofles', age: 3 }
+]
+
+now we are getting back a Dog class 
+
+and the real power is that we can add methods 
+
+speak() {
+        console.log(`${this.name} says WOOF!!!`)
+    }
+
+this is an example but usually it would be something useful like a logout method specific to the user. 
+
+express is smart enough to turn our instances into JSON 
+
+and if we were to add something like this.species = "DOGGGGGGGGGG" in the constructor, it would automatically return that in the json response to us 
+
+so it is taking all of the properties and giving them to us as json 
+
+now let's add another get route to get a particular dog by id 
+
+so now we add an instance method to be able to get a dog by the Id and now we will be returning a single dog instance 
+
+right now though we arent really benefitting from having the classes working but it pays off in a big way when you want to be able to use something like update or deleting 
+
+
+
+________________________________________________
+7. Smarter OO Model Part 2
+________________________________________________
+
+next we want to be able to create a new dog 
+
+it should insert a dog into the Dogs table and then it should return to us an instance of that created dog 
+
+Here is our last static method on our Dog model 
+
+    static async create(name, age) {
+        const results = await db.query(`INSERT INTO dogs (name,age) VALUES($1,$2) RETURNING id,name,age`, [name, age])
+        const { id, name, age } = results.rows[0];
+        // this is still the same order as we defined in our constructor 
+        return new Dog(id, name, age);
+    }
+
+    now we could improve this of course by adding in additional feedback in the case of an errror and we could add in try catch and all that depending on what was needed like if they forgot to include an age, we could give that feedback to the user
+
+    we are returning the id,name, and age back but we technically already have two of these from the req.body however something could happen in the middle when it is being inserted into the database so we would want to prevent this kind of thing by explicitly telling SQL to return the id,name, age here in case something happened where a character limit was reached or some other intermediary step occurred that would change that. 
+
+    so now we can create a dog and thats all good now 
+
+    but let's talk about deleting a dog 
+
+    we want to be able to find a dog and then remove or delete or something and we want that instance method to actually delete that dog 
+
+    we dont actually have to pass in an id because if we put delete as a method then we can just set the method to use this.id on its own instance to delete it 
+
+    for this particular instance we dont have to check if it returning because we are first checking if we are getting a dog back 
+
+    router.delete('/:id', async function (req, res, next) {
+    try {
+        let dog = await Dog.getById(req.params.id);
+        await dog.remove();
+        return res.json({ msg: "deleted" })
+    } catch (e) {
+        return next(e)
+    }
+
+})
+
+    so we try to delete and it works so we are all good with that 
+
+    and lastly we could update a dog 
+
+    if we wanted to update a portion of the dog 
+
+    we could make a simple property called dog.save() and it would save the current properties of the Dog instance , kind of like db.commit in sql alchemy 
+
+    async save() {
+        const results = await db.query(`UPDATE dogs SET name = $1, age=$2 WHERE id = $3`, [this.name, this.age, this.id]);
+    }
+
+    so the cool thing here is that we dont actually have to return anything, name has already been changed or age has already been changed, so we don't need to create a new dog because we are calling it on an instance 
+
+    and now if we wanted to age a dog we could make a PATCH route 
+
+    http://localhost:3000/dogs/3/age
+
+    router.patch('/:id/age', async function (req, res, next) {
+    try {
+        let dog = await Dog.getById(req.params.id);
+        dog.age += 1
+        await dog.save()
+        return res.json(dog)
+    } catch (e) {
+        return next(e)
+    }
+
+})
+
+that would work like this 
+
+we would update the age of the dog and then we would use our save method which updates our database. 
+
+and now very easily we can even rename the dog 
+
+router.patch('/:id/rename', async function (req, res, next) {
+    try {
+        let dog = await Dog.getById(req.params.id);
+        dog.name = req.body.name
+        await dog.save()
+        return res.json(dog)
+    } catch (e) {
+        return next(e)
+    }
+
+})
+
+and all we changed was a couple of lines 
+
+and we get this back 
+
+{
+  "id": 3,
+  "name": "Bilbo",
+  "age": 7
+}
+
+
+________________________________________________
+9. Comparing Approaches
+________________________________________________
+
+now we have seen two different Approaches
+which one is better?
+
+so we had both methods with models 
+
+the good thing about the approach with the Cat is just a collection of methods and we have a relatively simple model 
+
+the Dog method we have two steps to delete something because we are looking for a dog by an id and then it deletes if it finds it 
+
+the cat method makes it a bit harder to do something trickier , like if we wanted to make a speak method, it would be a little harder because for a lot of the methods we have to pass in an id , like if we wanted to use the dog speak method we would define a static method that did that but we would have to define an id and and pass it in , so if we have models that have a lot of tables and relationships makes it a bit trickier 
+
+the second approach the Smarter Class can be very handy once we set things up. Some of the methods can take a little longer to set up. But it is a nicer experience once we have the basic stuff out. 
+
+The next excercise will have multiple models
+
+we could do cat.speak() rather than Cat.speak(id)

@@ -1,0 +1,396 @@
+Node SQl Ecosystem
+___________________________________________________
+Now that we know how to make an app, write tests for routes, respond with data etc. 
+
+How to integrate postgres for an express app or for just a NodeJS file in general. In python we used SQL Alchemy to connect our database to our code. 
+
+We want to use a tool called pg (postgres) to connect and execute SQL queries. 
+Explain SQL injection and how to prevent it with pg
+Examine crud on a sql resource with express. 
+
+-ORMS - Object relational Mapping , where we have some class or multiple classes where we call methods on the class or instances 
+
+Sequelize is a popular ORM for express where we call our models etc. 
+
+-Query Builders
+KNEX.js is kind of like a mix between an orm and sql queries. 
+
+-SQL drivers
+kind of a bare bone ways of connecting to our postgres database. 
+we are goiing to end up making a lightweight ORM for our projects. 
+A step up is a query builder like knex 
+
+We are going to start by writing SQL queries as strings and it can be a bit tedious. Using SQL Alchemy is nice and it does a lot for us so something like sequelize. Using a SQL driver is a low-level way to interact with the database and there is different approaches. 
+
+It is a lot easier to debug when something goes wrong with the SQL queries rather than when you have a lot of abstraction and are basically not writing any SQL code at all. 
+
+It will be a good learning experience.
+___________________________________________________
+Connecting PostgreSQL
+
+lets install and write some basic pg queries. 
+
+first thing we did was make sure that postgresql was running which it now is 
+
+to seed and create the database with the tables we had to do 'psql < data.sql' and that used our file to populate and creates the usersdb table in psql 
+
+we need to downoad pg which is an adapter like psycopg2 , it lets us establish a connection to the database and SQL 
+
+using pg , we need to require it of course, need to tell it how we want to interact with the data 
+
+usually we put logic to another file we might call db.js 
+
+DATABASE CONNECTION LOGIC
+*********************************************
+// We are destructing it, its the same thing as saying pg.Client everywhere, since we're only after client this is the easiest way
+const { Client } = requrie('pg');
+
+let DB_URI;
+// so far all we are doing is conditionally setting a variable depending on whether we are going to be testing or not
+if (process.env.NODE_ENV === 'test') {
+    // when we test we are going to set at the top of our files the above NODE_ENV , so this is important
+    DB_URI = "postgresql:///usersdb_test";
+} else {
+    // for now this is our only database we've created
+    DB_URI = "postgresql:///usersdb";
+
+}
+// this is what we imported from pg, the one thing we need to give it is the uri which is what we are setting above
+let db = new Client({
+    // the property name and we are connecting the db uri to the connection string
+    connectionString: DB_URI
+});
+// we call db connect and this starts up our connection
+db.connect();
+// now we can import this db from another file like in our users file where we are defining the routes, and on db we will have different methods 
+module.exports = db;
+
+*********************************************
+now that we have that setup we are going to require it in our users.js file where our routing logic will be 
+
+we set up our route in users.js and now we are making a GET request from insomnia 
+
+when we do that we get no result back and the reason is that queries are async and so we have to wait for the query to finish before we return a response. 
+
+Unlike python, javascript does not wait to finish before it tries to return something
+
+we can fix this by making our callback in our router.get an async function and awaiting the query 
+
+
+1. Turn on psql
+2. psql < data.sql    # this creates the table for us
+3. npm i pg           # this installs our adapter (pg) for us
+4. Set up our database connecting logic 
+
+
+In our app.js we are using app.use to give everything the /users prefix so every connection is going to involve /users/restOfTheRoutes
+
+
+So once we set the await on and send back a result now we are getting back a javascript array full of the objects from the database from results.rows
+
+so now everything is working so far. 
+
+db.query accepts our SQL query and we get everything back. 
+
+We can also use the debugger after awaiting the results to be able to see what the variable is , we just need to make sure we send the request and then we have access to the req and res objects as well as the results variable as long as we set the debugger line after the results variable was created and awaited .
+
+___________________________________________________
+Async Error Handling
+So now we learned that the queries are asynchronous. We don't need to use promises explicitly.
+lets put a syntax error and lets see what happens. 
+
+So what should happen is that the server crashes and thats because we are not handling an error, we get an unhandled rejection warning. if it wasnt a promise we would get our default error handler
+
+for an async function that wouldnt work 
+
+we need to use try and catch blocks which is how we handle errors anyway 
+
+when we get to async operations having errors is problematic unless we try and catch them 
+
+___________________________________________________
+SQL Injection
+
+Let's create a route where we can search by user type , we have admin, staff, and user 
+
+we should be able to search, a GET request. 
+
+http://localhost:3000/users/search?type=admin
+
+so we use this in insomnia and then we get back our response which is 
+
+[
+  {
+    "id": 1,
+    "name": "Juanita",
+    "type": "admin"
+  },
+  {
+    "id": 6,
+    "name": "Jaimee",
+    "type": "admin"
+  }
+]
+
+
+ try {
+    // const type = req.query.type
+    // or we can destructure it and be fancy 
+    const { type } = req.query
+    const results = await db.query(`SELECT * FROM users WHERE type='${type}'`)
+    return res.json(results.rows)
+
+
+but there is a problem, we are leaving ourselves open to a SQL injection attack 
+
+Where an attacker takes some bad SQL like dropping tables or updating, reading, adding queries, etc. because of the way ourj application is set up. 
+
+so if somebody writes an addition sql query in our request they could delete all of our user information
+if we are just directly taking something from a user, somebody could manipulate that. the whole goal and idea of sql injection.
+
+we have a way of preventing this problem by sanitizing the inputs. ORMs do this for us automatically.
+
+the queries we saw from SQLAlchemy had like dollar signs and stuff where it was doing it for us automatically.
+
+there is something called sql parameterized queries where we can represent variables with $1, $2, $3 , etc. 
+
+so you pass in a second argument to db.query and then you pass an array of valuyes 
+
+the indexing starts at 1 rather than zero
+
+So now we are passing in  the variables like this 
+
+const results = await db.query(`SELECT * FROM users WHERE type=$1`, [type])
+
+and this allows us to be safe from a sql injection attack 
+
+what was happening before was that we were constructing and sending the full query but Postgres is smart enough to know that if you send a query with mroe than 1 parameter, to check for the dollar sign variables within the query string that is passed in
+___________________________________________________
+Creating
+
+More CRUD Actions 
+
+Let's create a new user 
+
+
+router.post('/', async (req, res, next) => {
+  try {
+    const { name, type } = req.body;
+    const results = await db.query(`INSERT INTO users (name,type) VALUES ($1,$2)`, [name, type])
+    return res.json(results.rows)
+
+  } catch (e) {
+    return next(e)
+  }
+})
+
+we are trying to create a user so we set up the post request and then we write the sql query to insert it into a table 
+
+but results.row is not going to return anything except an empty array because sql doesnt return a value here. 
+
+its just inserted so it is in there but it won't be giving us anything back 
+
+so to do that we could do another select or soemthing 
+
+instead we can use a RETURNING clause and that is how we specify what we want to return 
+
+so now when we try it we get this back 
+
+const results = await db.query(`INSERT INTO users (name,type) VALUES ($1,$2) RETURNING id,name,type`, [name, type])
+
+
+[
+  {
+    "id": 9,
+    "name": "Jared",
+    "type": "user"
+  }
+]
+
+we could do RETURNING * and that would give us back everything 
+
+a minor change we could do is to change the status code to 201 as what we are sending back 
+
+another minor tweak we could change is to make it so that we only return the first row at [0] index because there should only be 1 row but we just want the first item .
+
+So now we are successfully creating a new user using our parameterization that we just learned to protect from SQL injections. 
+
+
+___________________________________________________
+Updating and Deleting
+
+Let's finish up our api with updating and deleting a user. We are currently not validating , we are just trusting the user to fill out the required information. 
+
+we are going to be using a patch request and this is the query we will be using 
+
+const results = await db.query('UPDATE users SET name=$1,type=$2 WHERE id=$3')
+
+so that means our second parameter will have to be in that order of 1,2,3 for the objects we pass in as an array but we could easily change the order to be whatever we want it to be. 
+
+db.query('UPDATE users SET name=$1,type=$2 WHERE id=$3', [name, type, id])
+
+so our id comes out looking like this 
+
+and where do we get the id from? its from the query string so its gonna be part of req.params not the req.body 
+
+http://localhost:3000/users/12
+{
+	"name":"Grape Jam",
+	"type":"admin"
+}
+
+so we send this data to the api and it takes the id from the endpoint as well as taking the data that we provide for name and type and that is being put into the request which updates the users. 
+
+now lets delete something using the id 
+
+const results = db.query('DELETE FROM users WHERE id=$1', [req.params.id])
+    return res.send({ msg: "DELETED!" })
+
+so we can do that just as easily
+
+there is no committing involved. SQL Alchemy required us to go through and commit the database stuff.
+Here with PG we are just connecting directly with our database. 
+
+Now how do we test this new logic and that we are actually inserting or deleting
+
+___________________________________________________
+Testing PG Setup
+
+Now that we know the basics of connecting an app with a database we are going to go through with how we connect and test .
+we need to make sure that we have a test database. 
+
+we don't to use our main database for testing because we need to isolate and test the code seperately. The easiest way to specify this is to make it a process.env.NODE_ENV to be in test mode so that our app uses that. 
+
+so we need to create a database and if we don't put data then we need to at least create the right table 
+
+we are going to reuse the data file. 
+
+So now that we have that test db setup we are going to set NODE_ENV to be test 
+
+so by default environment is not going to be test we have to seperate our server logic and install super test .
+
+
+so we write our code to test
+
+
+let testUser;
+// What we want to do before we test is create a variable where we will be storing the data that we get back and that will just make the testing easier. 
+beforeEach(async () => {
+  const result = await db.query(`INSERT INTO users (name,type) VALUES ('Peanut','admin')
+  RETURNING id, name, type`);
+  testUser = result.rows[0]
+})
+
+describe("Hope this works", () => {
+  test("Blah", () => {
+    console.log(testUser);
+    expect(1).toBe(1);
+  })
+})
+
+this passes our jest testing so now that we have that done we can deal with an error that is being thrown which is that there is an async operation that isnt being stopped
+
+using the pg package keeps our db open so thats what is persisting and usually we want that to happen
+
+however when we run tests we want to end access to the database so we add in an afterAll async to stop the connection. 
+
+afterAll(async () => {
+  await db.end()
+})
+
+so this ends that process. 
+
+now we want to deal with refreshing the database after each test 
+
+afterEach(async () => {
+  await db.query(`DELETE FROM users`)
+})
+
+Now we are all set up for writing our tests 
+___________________________________________________
+Writing Tests With Node-PG
+
+So we have fully restful routes to test now so we will await request(this is from supertest remember) and then check that response. 
+
+We make a small update to how we are returning from a GET to /users, it is usually better to return items as an object when we are displaying information like the users so we want to display something like 
+
+{users: [testuser]}
+
+We added in an extra route that gives us just one user and then the one that checks whether we get back all of the users 
+
+describe("GET /users", () => {
+  test('Get a list with one user', async () => {
+    const res = await request(app).get('/users')
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toEqual({ users: [testUser] })
+  })
+})
+
+describe("GET /users/:id", () => {
+  test('Get a single user', async () => {
+    const res = await request(app).get(`/users/${testUser.id}`)
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ user: testUser })
+  })
+})
+
+but right now we are not handling the scenario where someone puts in an id that isnt found our try and catch wouldnt find that 
+
+in order to make sure that we tell a user that we get an invalid id or something, so if we write a test that checks that a user id that could never be in the database is in there then we need to make sure that we are handling that error and throwing a 404 so we need to add some extra logic before we respond with the res.send 
+
+we added in this line 
+
+if (results.rows.length === 0) {
+      throw new ExpressError(`Can't find user with id of ${id}`, 404)
+    }
+
+and we had already written our test for this and it is now passing 
+
+test('Responds with 404 for invalid id', async () => {
+    const res = await request(app).get(`/users/0`)
+    expect(res.statusCode).toBe(404);
+  })
+
+
+
+___________________________________________________
+Writing Tests With Node-pg Continued
+
+next let's test the post route to create a new user 
+
+router.post('/', async (req, res, next) => {
+  try {
+    const { name, type } = req.body;
+    const results = await db.query(`INSERT INTO users (name,type) VALUES ($1,$2) RETURNING id,name,type`, [name, type])
+    return res.status(201).json({ user: results.rows[0] })
+
+  } catch (e) {
+    return next(e)
+  }
+})
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const { name, type } = req.body
+    const { id } = req.params
+    const results = await db.query('UPDATE users SET name=$1,type=$2 WHERE id=$3 RETURNING id,name,type', [name, type, id])
+    if (results.rows.length === 0) {
+      throw new ExpressError(`Can't find user with id of ${id}`, 404)
+    }
+    return res.send({ user: results.rows[0] })
+  } catch (e) {
+    next(e)
+  }
+})
+
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const results = db.query('DELETE FROM users WHERE id=$1', [req.params.id])
+    return res.send({ msg: "DELETED!" })
+  } catch (e) {
+    next(e)
+  }
+})
+
+
+we also did patch and delete and we udpated our patch routes to handle if the id was invalid etc 
+
+our delete route is currently not checking if the id exists 

@@ -1,0 +1,286 @@
+_________________________________________________
+2. One-to-Many Relationships
+_________________________________________________
+Work with 1 to many relationships in pg
+
+work with many to many relationships in pg 
+
+handle missing data by sending 404s
+
+One-to-Many relationships 
+
+we can use \i data.sql inside of the database we are connecting to , to run the data file and insert the tables into our new database. I just added the lines to drop and create it from the data.sql file itself 
+
+so now we want to be able to find the user information from the users with all of their messages. 
+
+NOTE THAT THIS WAS ON THE VERY END OF THE ASSIGNMENT FOR THE FIRST SECTION AND WASNT ON THE FURTHER STUDY
+
+one way to handle it , is to use two seperate queries and then combine them together to make our json response. 
+
+this is what we want our response to look like 
+
+{name,type,messages: }
+
+with all of a users messages, so we make those queries 
+
+
+try {
+    const { id } = req.params
+    const userResults = await db.query('SELECT name,type FROM users WHERE id=$1', [id])
+    const msgResults = await db.query('SELECT id,msg FROM messages WHERE user_id=$1', [id])
+    // Get our user info
+    const user = userResults.rows[0];
+    // create and set a user object with property of messages 
+    user.messages = msgResults.rows;
+    // return that new user object
+    return res.send(user)
+  } 
+and we get this back 
+{
+  "name": "Juanita",
+  "type": "admin",
+  "messages": [
+    {
+      "id": 1,
+      "msg": "Help me with my coding interview!"
+    },
+    {
+      "id": 2,
+      "msg": "Common JS Mistakes"
+    }
+  ]
+}
+
+write now the queries are not being done in parallel, we are waiting for them to be responded to but we could do something like a promise.all to handle this kind of thing where we would not want to wait for one query to finish before we sent off another. There is better ways to do it rather than sending multiple queries. 
+
+
+_________________________________________________
+3. Many-to-Many Relationships
+_________________________________________________
+
+That's a basic one to many relationship 
+
+Wer have tags in messages and messages can be associated with multiple tags and tags can go on several messages 
+
+each tag has a code like py (python) and js (javascript)
+
+messages , we have a message_id 
+
+we want our api to include  a way to return info about messages and the tags existing on it 
+
+so now we have our basic routes set up and we are able to see the messages 
+{
+  "id": 1,
+  "msg": "Help me with my coding interview!"
+}
+
+to be able to see the tags we are going to need to write a join query 
+_________________________________________________
+4. Join Queries
+
+Let's configure it so that we can get back the tags
+
+So now we need to write the SQL query with a join 
+
+so currently our message_tags table looks like this 
+
+pg_relationships-# ;
+ message_id | tag_code
+------------+----------
+          1 | py
+          1 | js
+          2 | js
+          3 | js
+          3 | py
+
+and in our tags table we have py and js that it is python and javascript and we can see that from the tags table 
+
+what we need to do is start with a sql join 
+
+our end goal is to get a repsonse object that looks like the following:
+
+{
+    id:1,
+    msg: "message #1",
+    tags: ['Python', 'javascript']
+}
+
+And so after we have our query ready it should look something like the following 
+
+pg_relationships=# SELECT m.id, m.msg, t.tag
+pg_relationships-# FROM messages AS m
+pg_relationships-# LEFT JOIN messages_tags AS mt
+pg_relationships-# ON m.id = mt.message_id
+pg_relationships-# LEFT JOIN tags AS t
+pg_relationships-# ON mt.tag_code = t.code;
+ id |                msg                |    tag
+----+-----------------------------------+------------
+  1 | Help me with my coding interview! | Python
+  1 | Help me with my coding interview! | JavaScript
+  2 | Common JS Mistakes                | JavaScript
+  3 | My new flask+react project        | JavaScript
+  3 | My new flask+react project        | Python
+(5 rows)
+
+and thats good but we want to be able to specify the message so we just need to add a WHERE clause 
+
+
+a little extra practice with queries 
+
+pg_relationships=# SELECT name,msg FROM messages_tags LEFT JOIN messages ON messages.id=messages_tags.message_id LEFT JO
+IN users ON users.id=messages.user_id WHERE tag_code='py';
+  name   |                msg
+---------+-----------------------------------
+ Juanita | Help me with my coding interview!
+ Jenny   | My new flask+react project
+(2 rows)
+
+
+_________________________________________________
+
+_________________________________________________
+5. Many-to-Many Queries
+
+So we are pasting our giant query into the db.query 
+
+router.get('/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params
+        const results = await db.query(`SELECT m.id, m.msg, t.tag
+            FROM messages AS m 
+            LEFT JOIN messages_tags AS mt 
+            ON m.id = mt.message_id 
+            LEFT JOIN tags AS t 
+            ON mt.tag_code = t.code
+            WHERE m.id = $1`, [id])
+        res.send(results.rows[0])
+    } catch (e) {
+        return next(e)
+    }
+})
+
+
+
+So right now what we are getting back is pretty close 
+
+[
+  {
+    "id": 3,
+    "msg": "My new flask+react project",
+    "tag": "JavaScript"
+  },
+  {
+    "id": 3,
+    "msg": "My new flask+react project",
+    "tag": "Python"
+  }
+]
+
+but what we wanted was an array of the tags on the message 
+
+so how can we transform it?
+this is what our route ends up looking like 
+
+router.get('/:id', async (req, res, next) => {
+    try {
+
+        const results = await db.query(`SELECT m.id, m.msg, t.tag
+            FROM messages AS m 
+            LEFT JOIN messages_tags AS mt 
+            ON m.id = mt.message_id 
+            LEFT JOIN tags AS t 
+            ON mt.tag_code = t.code
+            WHERE m.id = $1`, [req.params.id])
+        // res.send(results.rows)
+
+        const { id, msg } = results.rows[0];
+        // we are getting back an array of tags, and we could make a loop and append that to an empty array but its easiest to just get the tags and map them to a new array 
+        const tags = results.rows.map(r => r.tag);
+        // now we can send back our own customized version where we just send id, msg and tags
+        // return res.send(results.rows)
+        // here is the short hand way to do it where we don't write the property and the name twice 
+        return res.send({ id, msg, tags })
+
+
+
+
+But if we go to a message id that does not exist then this is what is returmed from our api
+
+{
+  "error": "Cannot destructure property 'id' of 'results.rows[0]' as it is undefined."
+}
+
+the query runs fine but we are not handling that error because there is no entry in rows and we will handle that next 
+_________________________________________________
+
+_________________________________________________
+6. Handling Missing Resources
+_________________________________________________
+
+At the moment we are handling a couple of different routes but we are not handling the above error because we are not actually getting an id 
+
+see if we can check in results.rows.length and throw our own error 
+
+So now that we have that handled we can go back to the users route where we are not handling if the user id does not exist
+
+{
+  "error": "Cannot set property 'messages' of undefined"
+}
+
+gives us back this error
+
+we just add in the line to check whether we are getting back a results.rows of any length 
+
+now lets add in a patch route so we can update a message 
+
+we are going to start by writing out the udpate query
+
+we are going to assume we have the message
+
+req.body.msg and then we will have the id from req.params.id 
+
+so now we have our patch route 
+
+router.patch('/:id', async (req, res, next) => {
+    try {
+        const results = await db.query(
+            `UPDATE messages  SET msg = $1 WHERE id = $2 RETURNING id,user_id,msg`, [req.body.msg, req.params.id]
+        )
+        return res.json(results.rows[0])
+    } catch (e) {
+        return next(e)
+    }
+})
+
+and that is easy enough 
+
+but we are not responding to a patch request to a message that doesnt exist 
+
+one option is to try and select a message and if its not there then throw an error 
+
+here is our modified patch
+
+router.patch('/:id', async (req, res, next) => {
+    try {
+        const msgSelect = await db.query(`SELECT id,msg FROM users WHERE id = $1`, [req.params.id]);
+        if (msgSelect.rows.length === 0) {
+            throw new ExpressError('Message not found', 404)
+        }
+        const results = await db.query(
+            `UPDATE messages  SET msg = $1 WHERE id = $2 RETURNING id,user_id,msg`, [req.body.msg, req.params.id]
+        )
+        return res.json(results.rows[0])
+    } catch (e) {
+        return next(e)
+    }
+})
+
+if we find a message we continue to update and if not then we throw an error 
+
+its actually unecessary for us to do this
+
+if you try to update something that doesnt exist nothing happens 
+
+so if something updates then we can just check if something is in results.rows[0] and if its not then we can throw an error 
+
+The reason we can check if something is being returned is because of the RETURNING clause, otherwise we wouldnt be able to check if something came back
